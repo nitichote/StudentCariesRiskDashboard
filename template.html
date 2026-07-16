@@ -322,6 +322,7 @@ function vbars(items, opts={}){
     col.appendChild(val);
     const w=el('div','vwrap'); const bar=el('div','vbar');
     bar.style.height=((it[key]||0)/max*100)+'%'; bar.style.background=it.color;
+    if(opts.barMax) bar.style.maxWidth=opts.barMax+'px';
     w.appendChild(bar); col.appendChild(w);
     col.appendChild(el('div','vlab',(it.flag?'<span class="fl">⚠️</span> ':'')+it.label));
     col.addEventListener('mousemove',e=>showTip(`<b>${it.label}</b><br>${mode==='val'?it.val.toFixed(2):it.count+' '+unit+(opts.noPct?'':' ('+it.pct.toFixed(1)+'%)')}<br><span style="opacity:.7">คลิกเพื่อดูรายชื่อ</span>`,e.clientX,e.clientY));
@@ -356,8 +357,9 @@ function enumCard(code, title, opts={}){
     flag:alert.has(k), color: alert.has(k)? C().crit : (opts.color||HUES[i%HUES.length]),
     rows: rows.filter(r=>String(r[code])===k), focus:[code]}));
   const card=cardShell(ttl, opts.sub || (`ฐาน ${denom} คนที่มีข้อมูล`+(rows.length-denom>0?` · ไม่ระบุ ${rows.length-denom}`:'')), opts.icon, opts.wide);
+  if(opts.span) card.style.gridColumn='span '+opts.span;
   if(!items.length) card.appendChild(el('div','empty','ไม่มีข้อมูลในตัวกรองนี้'));
-  else card.appendChild(vbars(items,{title:ttl, focus:[code]}));
+  else card.appendChild(vbars(items,{title:ttl, focus:[code], barMax:opts.barMax}));
   wireCardView(card, ttl, rows, [code]);
   if(opts.note)card.appendChild(el('p','note',opts.note));
   return card;
@@ -380,6 +382,7 @@ function prevalenceCard(title, sub, specs, opts={}){
 function histCard(code, title, opts={}){
   const rows=filtered(); const a=rows.map(r=>r[code]).filter(num);
   const card=cardShell(title||byCode[code]?.thai||code, '', opts.icon, opts.wide);
+  if(opts.span) card.style.gridColumn='span '+opts.span;
   const mv = a.length? (a.reduce((x,y)=>x+y,0)/a.length):0;
   card.querySelector('.h-sub').textContent = a.length? `n=${a.length} · เฉลี่ย ${mv.toFixed(1)} · ต่ำสุด ${Math.min(...a)} · สูงสุด ${Math.max(...a)}` : '';
   if(!a.length){card.appendChild(el('div','empty','ไม่มีข้อมูล')); return card;}
@@ -391,7 +394,7 @@ function histCard(code, title, opts={}){
   const items=bins.map(b=>({label: step===1? String(b.s):`${b.s}-${b.e}`, count:b.c, pct:0, color:HUES[0],
     rows: rows.filter(r=>num(r[code]) && r[code]>=b.s && r[code]<=b.e), focus:[code]}));
   const max=Math.max(1,...items.map(x=>x.count)); items.forEach(x=>x.pct=x.count/max*100);
-  card.appendChild(vbars(items,{noPct:true, title:ttl, focus:[code]}));
+  card.appendChild(vbars(items,{noPct:true, title:ttl, focus:[code], barMax:opts.barMax}));
   wireCardView(card, ttl, rows.filter(r=>num(r[code])), [code]);
   if(opts.note)card.appendChild(el('p','note',opts.note));
   return card;
@@ -504,14 +507,13 @@ function renderKPI(){
   const rc=el('div','kpi kpi-risk');
   rc.appendChild(el('div','k-ic','🚦'));
   rc.appendChild(el('div','rk-t','ร้อยละกลุ่มความเสี่ยงฟันผุ'));
+  const openGrp=lab=>openTable('กลุ่มความเสี่ยง: '+lab, rows.filter(r=>r.riskgroup===lab), ['riskscore']);
   const bar=el('div','riskbar');
-  GRP.forEach(([lab,c,col])=>{ if(c>0){const seg=el('div','seg'); seg.style.width=pc(c)+'%'; seg.style.background=col; bar.appendChild(seg);} });
+  GRP.forEach(([lab,c,col])=>{ if(c>0){const seg=el('div','seg'); seg.style.width=pc(c)+'%'; seg.style.background=col; seg.style.cursor='pointer'; seg.title=lab+' — คลิกดูรายชื่อ'; seg.onclick=()=>openGrp(lab); bar.appendChild(seg);} });
   rc.appendChild(bar);
   const lg=el('div','risklg');
-  GRP.forEach(([lab,c,col])=>{ const s=el('div','rl'); s.innerHTML=`<i style="background:${col}"></i>${lab} <b>${pc(c).toFixed(0)}%</b> (${c})`; lg.appendChild(s); });
+  GRP.forEach(([lab,c,col])=>{ const s=el('div','rl'); s.style.cursor='pointer'; s.title=lab+' — คลิกดูรายชื่อ'; s.innerHTML=`<i style="background:${col}"></i>${lab} <b>${pc(c).toFixed(0)}%</b> (${c})`; s.onclick=()=>openGrp(lab); lg.appendChild(s); });
   rc.appendChild(lg);
-  rc.style.cursor='pointer'; rc.title='คลิกเพื่อดูรายชื่อ';
-  rc.onclick=()=>openTable('การจัดกลุ่มความเสี่ยงฟันผุ', rows, ['riskgroup']);
   box.appendChild(rc);
 }
 
@@ -572,8 +574,8 @@ const SECTIONS=[
  {id:'s1', name:'ส่วนที่ 1', title:'ข้อมูลทั่วไป', icon:'👤', color:'#2563eb', cat:'ส่วนที่1 ข้อมูลทั่วไป',
   desc:'ประชากรนักเรียนที่เข้ารับการคัดกรอง เพศ อายุ ระดับชั้น ภาวะโภชนาการ และผู้ดูแลหลัก',
   build:()=>[
-    enumCard('sex','เพศ',{icon:'⚧'}),
-    histCard('age_years','การกระจายตามอายุ (ปี)',{step:1,icon:'🎂'}),
+    enumCard('sex','เพศ',{icon:'⚧', barMax:34}),
+    histCard('age_years','การกระจายตามอายุ (ปี)',{step:1,icon:'🎂', span:2}),
     enumCard('class_level','ระดับชั้น',{sub:'จำนวนนักเรียนต่อชั้น', order:CLASS_ORDER, icon:'🎓'}),
     enumCard('nutrition_status','ภาวะโภชนาการ',{icon:'⚖️'}),
     enumCard('caregiver_main','ผู้ดูแลหลัก',{icon:'👪'}),
