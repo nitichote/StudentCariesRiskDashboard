@@ -113,6 +113,13 @@ section.cat{margin-top:26px; scroll-margin-top:14px}
 .cat-h h2{font-size:18px; margin:0}
 .cat-h .cat-n{font-size:12px; color:var(--muted); font-weight:600}
 .cat-desc{color:var(--text-secondary); font-size:13px; margin:2px 0 14px 54px}
+.insights{background:linear-gradient(135deg, rgba(37,99,235,.07), rgba(34,201,169,.06)); border:1px solid var(--card-border);
+  border-left:4px solid var(--series-1); border-radius:14px; padding:13px 17px; margin:0 0 16px; box-shadow:var(--shadow); backdrop-filter:blur(8px)}
+.insights h4{margin:0 0 9px; font-size:14px; display:flex; align-items:center; gap:7px}
+.insights ul{margin:0; padding:0; list-style:none; display:grid; grid-template-columns:repeat(auto-fit,minmax(300px,1fr)); gap:7px 20px}
+.insights li{font-size:13px; color:var(--text-secondary); display:flex; gap:8px; align-items:flex-start; line-height:1.5}
+.insights li .d{flex:none; font-size:11px; margin-top:2px}
+.insights b{color:var(--text-primary); font-weight:700}
 
 .grid{display:grid; grid-template-columns:repeat(auto-fill,minmax(340px,1fr)); gap:16px}
 .card{background:var(--card); border:1px solid var(--card-border); border-radius:18px; padding:16px 17px 15px; box-shadow:var(--shadow); backdrop-filter:blur(10px); position:relative}
@@ -684,6 +691,97 @@ function riskGroupCard(){
   card.appendChild(lg); return card;
 }
 
+// ---- Insights อัตโนมัติต่อหน้า ----
+function pctOf(a,b){return b?Math.round(a/b*100):0;}
+function topOf(rows, code, decode){
+  const m=counts(rows, code); let best=null, bc=-1;
+  m.forEach((v,k)=>{ if(v>bc){bc=v; best=k;} });
+  if(best==null) return null;
+  return {key:best, label:(decode&&decode[best])||best, count:bc, pct:pctOf(bc, rows.length)};
+}
+function countIn(rows, code, vals){ const s=new Set(vals.map(String)); return rows.filter(r=>s.has(String(r[code]))).length; }
+
+function sectionInsights(id, rows){
+  const n=rows.length; if(!n) return [];
+  const out=[]; const push=(s,t)=>out.push({s,t});
+  const dec=c=>(byCode[c]&&byCode[c].decode)||{};
+  if(id==='s1'){
+    const b=countIn(rows,'sex',['1']), g=countIn(rows,'sex',['2']);
+    push('info', `คัดกรองทั้งหมด <b>${n}</b> คน — ชาย <b>${b}</b> (${pctOf(b,n)}%) หญิง <b>${g}</b> (${pctOf(g,n)}%)`);
+    const nn=nonNull(rows,'nutrition_status'); const bad=countIn(rows,'nutrition_status',['2','3']);
+    if(nn) push(pctOf(bad,nn)>=30?'warn':'good', `ภาวะโภชนาการไม่ปกติ <b>${pctOf(bad,nn)}%</b> (ท้วม/อ้วน ${pctOf(countIn(rows,'nutrition_status',['2']),nn)}% · ผอม ${pctOf(countIn(rows,'nutrition_status',['3']),nn)}%)`);
+    const cl=topOf(rows,'class_level'); if(cl) push('info', `ชั้นที่มีนักเรียนมากสุดคือ <b>${cl.label}</b> (${cl.count} คน)`);
+    const sib=nonNull(rows,'siblings_caries'); if(sib){ const y=countIn(rows,'siblings_caries',['1']); if(y) push('warn', `พบประวัติพี่/น้องมีฟันผุ <b>${pctOf(y,sib)}%</b> ของผู้ที่ให้ข้อมูล (ปัจจัยเสี่ยงในครอบครัว)`); }
+  }
+  else if(id==='s2'){
+    const bed=pctOf(countIn(rows,'brush_before_bed',['2']),n);
+    push(bed>=70?'good':'warn', `แปรงฟันก่อนนอน "ทุกวัน" เพียง <b>${bed}%</b> ${bed<70?'— เป็นช่วงที่ควรกระตุ้นมากที่สุด':''}`);
+    const flu=nonNull(rows,'toothpaste_f'); if(flu) push('good', `ใช้ยาสีฟันผสมฟลูออไรด์ <b>${pctOf(countIn(rows,'toothpaste_f',['1']),flu)}%</b>`);
+    const sw=nonNull(rows,'sweet_drink_freq'), sn=nonNull(rows,'snack_freq');
+    const swr=pctOf(countIn(rows,'sweet_drink_freq',['2','3']),sw), snr=pctOf(countIn(rows,'snack_freq',['2','3']),sn);
+    push(Math.max(swr,snr)>=30?'crit':'warn', `บริโภคหวานถี่ (≥3-4 ครั้ง/วัน): เครื่องดื่มหวาน <b>${swr}%</b> · ขนมกรุบกรอบ <b>${snr}%</b>`);
+    const dur=pctOf(countIn(rows,'brush_duration',['1']),nonNull(rows,'brush_duration'));
+    if(dur) push(dur>=40?'warn':'info', `แปรงฟันสั้นกว่า 2 นาที <b>${dur}%</b>`);
+  }
+  else if(id==='s5'){
+    const specs=[['food_impaction','เศษอาหารติดฟัน'],['bleeding_brush','เลือดออกขณะแปรง'],['bad_breath','กลิ่นปาก'],['dentine_sensitivity','เสียวฟัน'],['gingival_abscess','เหงือกบวมหนอง']];
+    const scored=specs.map(([c,l])=>({l, p:pctOf(countIn(rows,c,['1','2']),n), c})).sort((a,b)=>b.p-a.p);
+    push('warn', `อาการที่พบบ่อยสุดคือ <b>${scored[0].l}</b> (${scored[0].p}%)`);
+    const bl=scored.find(x=>x.c==='bleeding_brush');
+    push(bl.p>=40?'crit':'warn', `เลือดออกขณะแปรงฟัน <b>${bl.p}%</b> — เป็นสัญญาณของภาวะเหงือกอักเสบ`);
+  }
+  else if(id==='s4'){
+    const tr=nonNull(rows,'dental_treat_12m'); if(tr) push('info', `เคยทำฟันใน 12 เดือน <b>${pctOf(countIn(rows,'dental_treat_12m',['1']),tr)}%</b>`);
+    const nc=pctOf(countIn(rows,'dental_check_12m',['0']),n);
+    push(nc>=20?'warn':'good', `ไม่เคยได้รับการตรวจฟันใน 12 เดือน <b>${nc}%</b>`);
+    const edu=[['edu_teacher','ครู'],['edu_parents','พ่อแม่/ญาติ'],['edu_health_staff','จนท.สธ.'],['edu_online','สื่อออนไลน์']]
+      .map(([c,l])=>({l,p:pctOf(countIn(rows,c,['1']),n)})).sort((a,b)=>b.p-a.p)[0];
+    push('info', `ช่องทางรับความรู้สุขภาพช่องปากหลักคือ <b>${edu.l}</b> (${edu.p}%)`);
+  }
+  else if(id==='sum'){
+    const dm=r=>(num(r.d)?r.d:0)+(num(r.m)?r.m:0), dmf=r=>dm(r)+(num(r.f)?r.f:0);
+    push('info', `DMFT เฉลี่ย <b>${(mean(rows,'dmft')||0).toFixed(2)}</b> ซี่/คน (ฟันผุ D เฉลี่ย ${(mean(rows,'d')||0).toFixed(2)})`);
+    const gt=pctOf(rows.filter(r=>dm(r)===0).length,n), cf=pctOf(rows.filter(r=>dmf(r)===0).length,n);
+    push(gt>=50?'good':'warn', `ฟันดีไม่มีผุ (d+m=0) <b>${gt}%</b> · ปราศจากฟันผุ (d+m+f=0) <b>${cf}%</b>`);
+    const gi=pctOf(rows.filter(r=>num(r.r_ohplaque)&&r.r_ohplaque>0).length,n);
+    push(gi>=50?'crit':'warn', `พบภาวะเหงือกอักเสบ <b>${gi}%</b> (จากเกณฑ์ r_ohplaque)`);
+  }
+  else if(id==='tooth'){
+    const car=rows.filter(r=>(r.n_caries||0)>=1).length;
+    push(pctOf(car,n)>=30?'crit':'warn', `พบฟันแท้มีรอยผุ (K/P/1/2) อย่างน้อย 1 ซี่ <b>${pctOf(car,n)}%</b> (${car} คน) เฉลี่ย ${(rows.reduce((a,r)=>a+(r.n_caries||0),0)/n).toFixed(2)} ซี่/คน`);
+    const tot={K:0,P:0,'1':0,'2':0}; rows.forEach(r=>TEETH.forEach(f=>{const v=tv(r,f); if(tot[v]!=null)tot[v]++;}));
+    const lab={K:'ผุระยะเริ่มแรก (K)',P:'เคลือบฟันถูกทำลาย (P)','1':'ผุเป็นรู (1)','2':'อุดแล้วผุซ้ำ (2)'};
+    const topStat=Object.entries(tot).sort((a,b)=>b[1]-a[1])[0];
+    if(topStat[1]>0) push('warn', `ระดับรอยผุที่พบมากสุดคือ <b>${lab[topStat[0]]}</b> รวม ${topStat[1]} ซี่`);
+    const pos=TEETH.map(f=>({f,c:rows.filter(r=>CARIES.has(tv(r,f))).length})).filter(x=>x.c>0).sort((a,b)=>b.c-a.c)[0];
+    if(pos) push('info', `ตำแหน่งที่พบรอยผุบ่อยสุดคือ <b>ซี่ ${pos.f.slice(1)}</b> (${pos.c} คน) — มักเป็นฟันกรามแท้ซี่แรก`);
+  }
+  else if(id==='risk'){
+    const facs=[['r_caries','ประวัติ/ฟันเสี่ยงผุ'],['r_ohplaque','เหงือกอักเสบ'],['r_sweet','บริโภคหวาน'],['r_brushflu','ขาดแปรง+ฟลูออไรด์'],['r_siblings','พี่/น้องฟันผุ'],['r_flu','Fluorosis'],['r_app','เครื่องมือในช่องปาก'],['r_defect','ความบกพร่อง']]
+      .map(([c,l])=>({l,p:pctOf(rows.filter(r=>num(r[c])&&r[c]>0).length,n)})).sort((a,b)=>b.p-a.p);
+    push('crit', `ปัจจัยเสี่ยงที่พบมากสุดคือ <b>${facs[0].l}</b> (${facs[0].p}%) รองลงมา ${facs[1].l} (${facs[1].p}%)`);
+    const avg=(rows.reduce((a,r)=>a+['r_defect','r_caries','r_flu','r_brushflu','r_app','r_sweet','r_siblings'].filter(c=>num(r[c])&&r[c]>0).length + (num(r.r_ohplaque)&&r.r_ohplaque>0?1:0),0)/n);
+    push('info', `นักเรียนติดเกณฑ์เสี่ยงเฉลี่ย <b>${avg.toFixed(1)}</b> ปัจจัย/คน`);
+  }
+  else if(id==='res'){
+    const vh=pctOf(countIn(rows,'riskgroup',['เสี่ยงสูงมาก']),n), hi=pctOf(countIn(rows,'riskgroup',['เสี่ยงสูง']),n), lo=pctOf(countIn(rows,'riskgroup',['เสี่ยงต่ำ']),n);
+    push(vh>=50?'crit':'warn', `กลุ่มเสี่ยงสูงมาก <b>${vh}%</b> · เสี่ยงสูง ${hi}% · เสี่ยงต่ำ ${lo}%`);
+    push('info', `คะแนนความเสี่ยงเฉลี่ย <b>${(mean(rows,'riskscore')||0).toFixed(1)}</b> คะแนน (คะแนนสูง = เสี่ยงมาก)`);
+    if(vh>=70) push('crit', `สัดส่วนกลุ่มเสี่ยงสูงมากค่อนข้างสูง ควรวางแผนป้องกัน/ส่งต่อเชิงรุก`);
+  }
+  return out;
+}
+function renderInsights(id){
+  const rows=filtered(); const items=sectionInsights(id, rows);
+  if(!items.length) return null;
+  const box=el('div','insights');
+  box.appendChild(el('h4',null,'💡 ข้อค้นพบสำคัญ (Insights)'));
+  const ul=el('ul');
+  const DOT={crit:'🔴',warn:'🟠',good:'🟢',info:'🔵'};
+  items.forEach(it=>{ const li=el('li'); li.innerHTML=`<span class="d">${DOT[it.s]||'🔵'}</span><span>${it.t}</span>`; ul.appendChild(li); });
+  box.appendChild(ul); return box;
+}
+
 let activeSec='s1';
 function renderMenu(){
   const menu=document.getElementById('sidemenu'); menu.innerHTML='';
@@ -708,6 +806,7 @@ function renderSections(){
     tw.appendChild(el('span','cat-n',`${s.name} · ${nf}`));
     h.appendChild(tw); sec.appendChild(h);
     sec.appendChild(el('p','cat-desc',s.desc));
+    const ins=renderInsights(s.id); if(ins) sec.appendChild(ins);
     const grid=el('div','grid'); s.build().forEach(c=>grid.appendChild(c)); sec.appendChild(grid);
     host.appendChild(sec);
   });
