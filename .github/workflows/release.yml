@@ -1,0 +1,55 @@
+name: Build & Release EXE
+
+# บิลด์ .exe บน Windows แล้วอัปโหลดขึ้น GitHub Releases อัตโนมัติ
+# ทริกเกอร์เมื่อ push tag ที่ขึ้นต้นด้วย v เช่น v1.0.0
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:      # กดรันเองได้จากแท็บ Actions
+
+permissions:
+  contents: write         # ต้องมีสิทธิ์นี้เพื่อสร้าง Release
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt pyinstaller
+
+      - name: Inject version & repo
+        shell: pwsh
+        run: |
+          $tag = "${{ github.ref_name }}"
+          $ver = $tag -replace '^v',''
+          if (-not $ver) { $ver = "0.0.0" }
+          $repo = "${{ github.repository }}"
+          $c = Get-Content app.py -Raw
+          $c = $c -replace '__version__ = "0\.0\.0"', ('__version__ = "' + $ver + '"')
+          $c = $c -replace 'GITHUB_REPO = "OWNER/REPO"', ('GITHUB_REPO = "' + $repo + '"')
+          Set-Content app.py $c
+          Write-Host "version=$ver repo=$repo"
+
+      - name: Build EXE (PyInstaller)
+        run: >
+          pyinstaller --onefile --name OralHealthDashboard
+          --add-data "template.html;."
+          --add-data "logo_datauri.txt;."
+          app.py
+
+      - name: Upload to Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/OralHealthDashboard.exe
+          generate_release_notes: true

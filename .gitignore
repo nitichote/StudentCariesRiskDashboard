@@ -1,0 +1,15 @@
+# Python
+__pycache__/
+*.pyc
+build/
+dist/
+*.spec
+
+# ไฟล์ที่แอปสร้าง
+oral_health_dashboard.html
+
+# ข้อมูลนักเรียน (อย่า commit ข้อมูลจริงขึ้น GitHub สาธารณะ)
+*.xlsm
+*.xlsx
+!examples/*.xlsx
+~$*
